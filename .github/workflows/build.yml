@@ -78,6 +78,192 @@ jobs:
             echo 'src-git qmodem https://github.com/FUjr/QModem.git;main' >> feeds.conf.default
           fi
 
+      - name: Setup Node.js for Modem WebUI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Modem WebUI
+        run: |
+          # 克隆 Modem WebUI 项目
+          git clone https://github.com/snowflakexuehui/Modem_Webui.git modem_webui_src
+          cd modem_webui_src/web
+          
+          # 安装 pnpm
+          npm install -g pnpm
+          
+          # 安装依赖并构建
+          pnpm install
+          pnpm build
+          
+          # 创建一个特殊标记的 config.json，后续会被路由器上的脚本替换为实际 LAN IP
+          # 这里使用占位符 __LAN_IP__，便于后续替换
+          cat > dist/config.json << 'EOF'
+          {
+            "status": "true",
+            "at": {
+              "host": "__LAN_IP__",
+              "port": 8765
+            }
+          }
+          EOF
+          
+          cd ../..
+
+      - name: Create Modem WebUI OpenWrt package
+        run: |
+          # 创建 OpenWrt 包目录结构
+          mkdir -p $SOURCE_DIR/package/modem-webui/files/www/modem-webui
+          mkdir -p $SOURCE_DIR/package/modem-webui/files/etc/init.d
+          mkdir -p $SOURCE_DIR/package/modem-webui/files/etc/uci-defaults
+          
+          # 复制构建好的前端文件
+          cp -r modem_webui_src/web/dist/* $SOURCE_DIR/package/modem-webui/files/www/modem-webui/
+          
+          # 创建一个 JavaScript 文件来动态获取当前 host
+          # 这样无论通过 IP 还是 immortalwrt.lan 访问都能正常工作
+          cat > $SOURCE_DIR/package/modem-webui/files/www/modem-webui/dynamic-config.js << 'EOFDYNAMICJS'
+          // 动态配置 - 自动使用当前访问的 host
+          (function() {
+            window.MODEM_WEBUI_CONFIG = {
+              status: "true",
+              at: {
+                host: window.location.hostname,  // 自动使用当前访问的 host
+                port: 8765
+              }
+            };
+          })();
+          EOFDYNAMICJS
+          
+          # 修改 index.html，在加载其他脚本前先加载动态配置
+          if [ -f "$SOURCE_DIR/package/modem-webui/files/www/modem-webui/index.html" ]; then
+            sed -i 's|<head>|<head><script src="dynamic-config.js"></script>|' \
+              $SOURCE_DIR/package/modem-webui/files/www/modem-webui/index.html
+          fi
+          
+          # 同时创建 config.json 作为后备（某些情况下前端可能直接读取此文件）
+          cat > $SOURCE_DIR/package/modem-webui/files/etc/uci-defaults/99-modem-webui << 'EOFSCRIPT'
+          #!/bin/sh
+          
+          # 创建配置更新脚本
+          cat > /usr/bin/update-modem-webui-config << 'INNEREOF'
+          #!/bin/sh
+          # 获取 br-lan 接口的 IP 地址
+          LAN_IP=$(ip -4 addr show br-lan 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+          
+          # 如果获取失败，尝试从 uci 获取
+          if [ -z "$LAN_IP" ]; then
+            LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null | cut -d'/' -f1)
+          fi
+          
+          # 默认值
+          if [ -z "$LAN_IP" ]; then
+            LAN_IP="192.168.1.1"
+          fi
+          
+          # 获取路由器 hostname（用于域名访问）
+          HOSTNAME=$(uci get system.@system[0].hostname 2>/dev/null)
+          if [ -z "$HOSTNAME" ]; then
+            HOSTNAME="immortalwrt"
+          fi
+          
+          # 更新 config.json - 使用空 host，让前端使用 window.location.hostname
+          # 这样无论通过 IP 还是域名访问都能正常工作
+          cat > /www/modem-webui/config.json << EOF
+          {
+            "status": "true",
+            "at": {
+              "host": "",
+              "port": 8765
+            },
+            "_lan_ip": "$LAN_IP",
+            "_hostname": "$HOSTNAME.lan"
+          }
+          EOF
+          
+          # 更新动态配置 JS（确保始终使用 window.location.hostname）
+          cat > /www/modem-webui/dynamic-config.js << 'JSEOF'
+          // 动态配置 - 自动使用当前访问的 host
+          // 支持 IP 访问 (如 192.168.1.1) 和域名访问 (如 immortalwrt.lan)
+          (function() {
+            window.MODEM_WEBUI_CONFIG = {
+              status: "true",
+              at: {
+                host: window.location.hostname,
+                port: 8765
+              }
+            };
+            console.log('[Modem WebUI] Using host:', window.location.hostname);
+          })();
+          JSEOF
+          
+          logger -t modem-webui "Updated config with LAN IP: $LAN_IP, Hostname: $HOSTNAME.lan"
+          INNEREOF
+          
+          chmod +x /usr/bin/update-modem-webui-config
+          
+          # 首次运行更新配置
+          /usr/bin/update-modem-webui-config
+          
+          exit 0
+          EOFSCRIPT
+          
+          chmod +x $SOURCE_DIR/package/modem-webui/files/etc/uci-defaults/99-modem-webui
+          
+          # 创建 hotplug 脚本 - 当网络变化时自动更新配置
+          mkdir -p $SOURCE_DIR/package/modem-webui/files/etc/hotplug.d/iface
+          cat > $SOURCE_DIR/package/modem-webui/files/etc/hotplug.d/iface/99-modem-webui << 'EOFHOTPLUG'
+          #!/bin/sh
+          
+          [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "lan" ] && {
+            sleep 2  # 等待接口完全启动
+            /usr/bin/update-modem-webui-config
+          }
+          EOFHOTPLUG
+          
+          chmod +x $SOURCE_DIR/package/modem-webui/files/etc/hotplug.d/iface/99-modem-webui
+          
+          # 创建 Makefile
+          cat > $SOURCE_DIR/package/modem-webui/Makefile << 'EOFMAKE'
+          include $(TOPDIR)/rules.mk
+          
+          PKG_NAME:=modem-webui
+          PKG_VERSION:=1.0.0
+          PKG_RELEASE:=1
+          
+          include $(INCLUDE_DIR)/package.mk
+          
+          define Package/modem-webui
+            SECTION:=net
+            CATEGORY:=Network
+            TITLE:=Modem Manager WebUI
+            DEPENDS:=+uhttpd
+            PKGARCH:=all
+          endef
+          
+          define Package/modem-webui/description
+            A web-based modem management interface for 5G/LTE modems.
+            Provides dashboard, network config, SMS management and AT debug.
+          endef
+          
+          define Build/Compile
+          endef
+          
+          define Package/modem-webui/install
+          	$(INSTALL_DIR) $(1)/www/modem-webui
+          	$(CP) ./files/www/modem-webui/* $(1)/www/modem-webui/
+          	$(INSTALL_DIR) $(1)/etc/uci-defaults
+          	$(INSTALL_BIN) ./files/etc/uci-defaults/99-modem-webui $(1)/etc/uci-defaults/
+          	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+          	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/99-modem-webui $(1)/etc/hotplug.d/iface/
+          endef
+          
+          $(eval $(call BuildPackage,modem-webui))
+          EOFMAKE
+          
+          echo "Modem WebUI 包创建完成"
+          ls -la $SOURCE_DIR/package/modem-webui/
+
       - name: Cache dl directory
         uses: actions/cache@v4
         with:
@@ -115,11 +301,17 @@ jobs:
           sed -i '/CONFIG_PACKAGE_luci-app-3ginfo-lite/d' .config
           sed -i '/CONFIG_PACKAGE_luci-app-sms-tool/d' .config
           
-          # 启用 QModem 及其依赖
-          echo 'CONFIG_PACKAGE_luci-app-qmodem=y' >> .config
+          # 启用 QModem 核心及其依赖
+          echo 'CONFIG_PACKAGE_luci-compat=y' >> .config
           echo 'CONFIG_PACKAGE_qmodem=y' >> .config
+          echo 'CONFIG_PACKAGE_luci-app-qmodem=y' >> .config
           echo 'CONFIG_PACKAGE_sms-tool_q=y' >> .config
           echo 'CONFIG_PACKAGE_quectel-cm-5g=y' >> .config
+          
+          # 启用 QModem MWAN (多WAN负载均衡/故障转移)
+          echo 'CONFIG_PACKAGE_luci-app-mwan3=y' >> .config
+          echo 'CONFIG_PACKAGE_mwan3=y' >> .config
+          echo 'CONFIG_PACKAGE_luci-app-qmodem-mwan=y' >> .config
           
           # 启用 UPnP
           echo 'CONFIG_PACKAGE_luci-app-upnp=y' >> .config
@@ -138,13 +330,17 @@ jobs:
           # 启用 HomeProxy
           echo 'CONFIG_PACKAGE_luci-app-homeproxy=y' >> .config
           
+          # 启用 Modem WebUI (5G模组管理界面)
+          echo 'CONFIG_PACKAGE_modem-webui=y' >> .config
+          
           # 启用 ccache 加速
           echo 'CONFIG_CCACHE=y' >> .config
           
           make defconfig
           
-          # 保存配置文件到仓库
-          cp .config ../config/current.config
+          # 保存配置文件到仓库（确保目录存在）
+          mkdir -p ../config
+          cp .config ../config/current.config || true
 
       - name: Download packages
         run: |
