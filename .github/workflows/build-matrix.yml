@@ -19,15 +19,21 @@ jobs:
         with:
           fetch-depth: 1
       # 直接使用 feeds.conf.default，无需 cp 操作
+      - name: Clone source
+        run: |
+          if [ ! -d immortalwrt/.git ]; then
+            git clone --depth=1 --single-branch -b mt798x-mt799x-6.6-mtwifi https://github.com/padavanonly/immortalwrt-mt798x-24.10 immortalwrt
+          fi
       - name: Cache feeds
         id: cache-feeds
         uses: actions/cache@v4
         with:
-          path: feeds
+          path: immortalwrt/feeds
           key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
       - name: Update feeds
         run: |
           cd immortalwrt
+          cp ../feeds.conf.default feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
