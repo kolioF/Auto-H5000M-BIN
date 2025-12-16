@@ -27,6 +27,7 @@ jobs:
           key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
       - name: Update feeds
         run: |
+          cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
