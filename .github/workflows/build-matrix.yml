@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: immortalwrt/feeds
-          key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
+          key: ${{ runner.os }}-feeds-${{ github.run_id }}-${{ hashFiles('feeds.conf.default') }}
       - name: Update feeds
         run: |
           cd immortalwrt
