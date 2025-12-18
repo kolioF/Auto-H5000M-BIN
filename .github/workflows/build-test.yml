@@ -283,6 +283,50 @@ jobs:
           make defconfig
           echo "✅ 配置完成"
 
+      - name: 检查磁盘空间
+        run: |
+          echo "💾 检查磁盘空间..."
+          AVAIL_GB=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+          echo "可用磁盘空间: ${AVAIL_GB}GB"
+          if [ "$AVAIL_GB" -lt 10 ]; then
+            echo "⚠️ 磁盘空间不足，执行深度清理..."
+            
+            # 删除 Docker 镜像
+            docker rmi $(docker images -q) 2>/dev/null || true
+            
+            # 删除不需要的大型组件
+            sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android \
+              /opt/ghc /etc/mysql /etc/php /usr/local/share/boost /usr/share/swift \
+              /opt/hostedtoolcache /usr/local/.ghcup /usr/local/graalvm /imagegeneration \
+              /usr/share/dotnet /usr/local/lib/android /opt/ghc /etc/mysql /etc/php \
+              /usr/local/share/boost /usr/share/swift /opt/hostedtoolcache /usr/local/.ghcup \
+              /usr/local/graalvm /imagegeneration 2>/dev/null || true
+            
+            # 卸载不需要的软件
+            sudo apt-get -y purge azure-cli* docker* ghc* zulu* hhvm* llvm* firefox* \
+              google* dotnet* aspnetcore* powershell* openjdk* adoptopenjdk* mysql* php* \
+              mongodb* moby* snap* 2>/dev/null || true
+            
+            # 清理包管理器
+            sudo apt-get autoremove --purge -y
+            sudo apt-get clean
+            sudo apt-get autoclean
+            
+            # 清理临时文件
+            sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+            
+            # Docker 清理
+            docker system prune -f 2>/dev/null || true
+            
+            AVAIL_GB=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+            echo "清理后可用磁盘空间: ${AVAIL_GB}GB"
+            if [ "$AVAIL_GB" -lt 10 ]; then
+              echo "❌ 清理后仍不足10GB"
+              exit 1
+            fi
+          fi
+          echo "✅ 磁盘空间充足"
+
       - name: 编译固件
         run: |
           cd $SOURCE_DIR
