@@ -131,6 +131,14 @@ jobs:
           ./scripts/feeds update -a || echo "警告: 部分 feeds 更新失败，继续进行..."
           ./scripts/feeds install -a -f || echo "警告: 部分 feeds 安装失败，继续进行..."
 
+          # 替换 golang 包为 sbwml 版本 (支持 golang 1.24.x)
+          echo "替换 golang 包为最新版本..."
+          rm -rf feeds/packages/lang/golang
+          git clone https://github.com/sbwml/packages_lang_golang -b 24.x feeds/packages/lang/golang || echo "警告: golang 包替换失败"
+
+          # 删除冲突的包
+          rm -rf feeds/packages/net/v2ray-geodata || true
+
           # 如果启用 AdGuardHome，则克隆包
           if [ "${{ inputs.enable_adguardhome }}" = "true" ]; then
             [ ! -d "package/luci-app-adguardhome" ] && \
@@ -141,6 +149,13 @@ jobs:
           if [ -f "$AGH_LUCI_SCRIPT" ]; then
             sed -i 's|mv /usr/bin/AdGuardHome/AdGuardHome|rm -rf /usr/bin/AdGuardHome 2>/dev/null; mkdir -p /usr/bin/AdGuardHome; mv /tmp/AdGuardHomeupdate/AdGuardHome_linux_*/AdGuardHome|g' "$AGH_LUCI_SCRIPT" || true
           fi
+
+          # 处理 MosDNS 和 v2ray-geodata (非官方源码需要重新克隆)
+          echo "处理 MosDNS 和相关包..."
+          find ./ | grep Makefile | grep v2ray-geodata | xargs rm -f || true
+          find ./ | grep Makefile | grep mosdns | xargs rm -f || true
+          git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns || echo "警告: MosDNS 克隆失败"
+          git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata || echo "警告: v2ray-geodata 克隆失败"
 
           rm -rf package/feeds/packages/exim package/feeds/packages/onionshare-cli package/feeds/packages/python-zope-event package/feeds/packages/python-zope-interface 2>/dev/null || true
       - name: 配置构建
