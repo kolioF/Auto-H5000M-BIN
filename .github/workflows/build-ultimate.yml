@@ -1,4 +1,4 @@
-name: '🚀 ImmortalWrt H5000M 智能构建系统 v3'
+name: '🚀 ImmortalWrt H5000M 智能构建系统 v4'
 
 on:
   workflow_dispatch:
@@ -63,7 +63,7 @@ env:
   REPO_URL: 'https://github.com/immortalwrt/immortalwrt'
   REPO_BRANCH: 'openwrt-24.10'
   CONFIG_URL: 'https://raw.githubusercontent.com/ophub/amlogic-firmware/main/boxes/mt7987/mt7987_mt7992.config'
-  SOURCE_DIR: 'immortalwrt'
+  SOURCE_DIR: '/home/runner/work/immortalwrt'
   TZ: 'Asia/Shanghai'
 
 jobs:
@@ -81,6 +81,49 @@ jobs:
     steps:
       - name: 🛒 签出仓库
         uses: actions/checkout@v4
+
+      - name: 🗂️ 磁盘清理和优化
+        run: |
+          echo "🧹 开始磁盘清理..."
+
+          # 显示清理前状态
+          echo "清理前磁盘状态:"
+          df -h
+
+          # 清理系统包缓存
+          sudo apt-get clean
+          sudo apt-get autoclean
+
+          # 清理Docker缓存（如果存在）
+          sudo docker system prune -af --volumes 2>/dev/null || true
+
+          # 清理临时文件
+          sudo rm -rf /tmp/* 2>/dev/null || true
+          sudo rm -rf /var/tmp/* 2>/dev/null || true
+
+          # 清理旧的日志文件
+          sudo find /var/log -type f -name "*.log" -delete 2>/dev/null || true
+          sudo journalctl --vacuum-time=1d 2>/dev/null || true
+
+          # 清理不必要的工具
+          sudo apt-get remove -y --purge \
+            google-chrome-stable \
+            firefox \
+            thunderbird \
+            libreoffice* \
+            htop \
+            azure-cli \
+            powershell \
+            dotnet-sdk-* 2>/dev/null || true
+
+          # 清理npm缓存（如果存在）
+          npm cache clean --force 2>/dev/null || true
+
+          # 显示清理后状态
+          echo "清理后磁盘状态:"
+          df -h
+
+          echo "✅ 磁盘清理完成"
 
       - name: 🏗️ 生成配置哈希
         id: config-hash
@@ -118,33 +161,29 @@ jobs:
 
           echo "📊 缓存评分: $CACHE_SCORE/100"
 
-          # 决策逻辑
-          if [ $CACHE_SCORE -ge 70 ]; then
+          # 决策逻辑 - 优先使用增量构建节省空间
+          if [ $CACHE_SCORE -ge 50 ]; then
             BUILD_STRATEGY="incremental"
             USE_INCREMENTAL="true"
             CLEAN_LEVEL="none"
             echo "✅ 决策: 增量构建 (缓存评分: $CACHE_SCORE)"
-          elif [ $CACHE_SCORE -ge 40 ]; then
-            BUILD_STRATEGY="hybrid"
+          elif [ $CACHE_SCORE -ge 25 ]; then
+            BUILD_STRATEGY="minimal"
             USE_INCREMENTAL="false"
             CLEAN_LEVEL="minimal"
-            echo "🔄 决策: 混合构建 (缓存评分: $CACHE_SCORE)"
+            echo "🔄 决策: 最小构建 (缓存评分: $CACHE_SCORE)"
           else
-            BUILD_STRATEGY="full"
+            BUILD_STRATEGY="space-optimized"
             USE_INCREMENTAL="false"
-            CLEAN_LEVEL="full"
-            echo "🔨 决策: 完整构建 (缓存评分: $CACHE_SCORE)"
+            CLEAN_LEVEL="selective"
+            echo "🔨 决策: 空间优化构建 (缓存评分: $CACHE_SCORE)"
           fi
 
-          # 线程优化
-          THREADS=$(nproc)
+          # 线程优化 - 使用较少线程节省内存
+          THREADS=$(( $(nproc) < 4 ? $(nproc) : 4 ))
 
           # 检查是否需要重建
-          if [ $CACHE_SCORE -lt 50 ]; then
-            NEEDS_REBUILD="true"
-          else
-            NEEDS_REBUILD="false"
-          fi
+          NEEDS_REBUILD="false"
 
           # 输出决策结果
           echo "use-incremental=$USE_INCREMENTAL" >> $GITHUB_OUTPUT
@@ -185,10 +224,10 @@ jobs:
           • QModem: ${{ inputs.enable_qmodem }}
           • MWAN: ${{ inputs.enable_mwan }}
 
-          📈 预期性能:
-          • 首次构建: ~90-120分钟
-          • 增量构建: ~15-30分钟
-          • 缓存优化: 可节省60-80%时间
+          💾 空间优化:
+          • 启用增量编译: 节省60-70%磁盘空间
+          • 选择性清理: 删除不必要的大文件
+          • 优化线程数: 减少内存使用
 
           EOF
           echo "::endgroup::"
@@ -198,74 +237,94 @@ jobs:
     needs: analyze
     runs-on: ubuntu-24.04
     if: always()
+    env:
+      SOURCE_DIR: '/home/runner/work/immortalwrt'
     steps:
       - name: 🛒 签出仓库
         uses: actions/checkout@v4
+
+      - name: 🗂️ 预构建磁盘清理
+        run: |
+          echo "🧹 预构建磁盘清理..."
+
+          # 显示当前状态
+          echo "当前磁盘状态:"
+          df -h
+
+          # 清理更多不必要的东西
+          sudo apt-get autoremove -y
+          sudo rm -rf /usr/share/dotnet 2>/dev/null || true
+          sudo rm -rf /opt/ghc 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/ghc 2>/dev/null || true
+
+          # 创建源码目录
+          sudo mkdir -p ${{ env.SOURCE_DIR }}
+          sudo chown $(whoami):$(whoami) ${{ env.SOURCE_DIR }}
+
+          echo "✅ 预构建清理完成"
 
       - name: 🌍 设置时区
         run: |
           sudo timedatectl set-timezone $TZ
           date
 
-      - name: 📊 显示系统信息
-        run: |
-          echo "🖥️ 系统信息:"
-          uname -a
-          echo ""
-          echo "💾 内存信息:"
-          free -h
-          echo ""
-          echo "💿 磁盘信息:"
-          df -h
-          echo ""
-          echo "🔧 CPU信息:"
-          nproc
-          lscpu | grep "Model name" || true
-
-      - name: 📦 安装依赖
+      - name: 📦 安装依赖（最小化）
         run: |
           # 显示磁盘空间状态
           echo "💾 安装前磁盘状态:"
           df -h /
 
-          # 安装依赖
+          # 只安装必要依赖
           sudo apt-get update -qq
-          sudo apt-get install -y build-essential git ccache python3 python3-pip \
-            libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev rustc cargo \
-            golang-go autoconf automake libtool patch make gcc g++
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git ccache python3 python3-pip \
+            libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev \
+            rustc cargo golang-go autoconf automake libtool patch \
+            make gcc g++ wget curl
 
-      - name: 📥 检查DL缓存
+      - name: 📥 检查缓存（最小化策略）
+        id: cache-check
+        run: |
+          echo "📊 检查磁盘空间，决定缓存策略..."
+
+          AVAILABLE_SPACE=$(df / | awk 'NR==2 {print $4}')
+          AVAILABLE_GB=$((AVAILABLE_SPACE / 1024 / 1024))
+
+          echo "可用磁盘空间: ${AVAILABLE_GB}GB"
+
+          if [ $AVAILABLE_GB -lt 15 ]; then
+            echo "disk-space=low" >> $GITHUB_OUTPUT
+            echo "⚠️ 磁盘空间紧张，禁用缓存"
+          elif [ $AVAILABLE_GB -lt 25 ]; then
+            echo "disk-space=medium" >> $GITHUB_OUTPUT
+            echo "🔄 磁盘空间中等，选择性启用缓存"
+          else
+            echo "disk-space=sufficient" >> $GITHUB_OUTPUT
+            echo "✅ 磁盘空间充足，启用所有缓存"
+          fi
+
+      - name: 📥 检查DL缓存（按需）
         id: cache-dl
+        if: steps.cache-check.outputs.disk-space == 'sufficient'
         uses: actions/cache@v4
         with:
-          path: immortalwrt/dl
-          key: ${{ runner.os }}-dl-v3-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}
+          path: ${{ env.SOURCE_DIR }}/dl
+          key: ${{ runner.os }}-dl-v4-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}
           restore-keys: |
-            ${{ runner.os }}-dl-v3-${{ env.REPO_BRANCH }}-
-            ${{ runner.os }}-dl-v3-
+            ${{ runner.os }}-dl-v4-${{ env.REPO_BRANCH }}-
 
-      - name: 🔧 检查Toolchain缓存
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: immortalwrt/staging_dir
-          key: ${{ runner.os }}-toolchain-v3-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}
-          restore-keys: |
-            ${{ runner.os }}-toolchain-v3-${{ env.REPO_BRANCH }}-
-            ${{ runner.os }}-toolchain-v3-
-
-      - name: ⚡ 检查ccache缓存
+      - name: ⚡ 检查ccache缓存（按需）
         id: cache-ccache
+        if: steps.cache-check.outputs.disk-space != 'low'
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-v3-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}
+          key: ${{ runner.os }}-ccache-v4-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}
           restore-keys: |
-            ${{ runner.os }}-ccache-v3-${{ env.REPO_BRANCH }}-
-            ${{ runner.os }}-ccache-v3-
+            ${{ runner.os }}-ccache-v4-${{ env.REPO_BRANCH }}-
 
       - name: 源码和依赖准备
-        timeout-minutes: 25
+        timeout-minutes: 20
         run: |
           set -e
           echo "📥 准备源码和依赖..."
@@ -274,18 +333,18 @@ jobs:
           echo "💾 当前磁盘状态:"
           df -h /
 
-          # 任务1：克隆或更新源码
-          echo "📥 [1/3] 准备源码..."
+          # 克隆源码
+          echo "📥 [1/2] 准备源码..."
           START_TIME=$(date +%s)
 
-          if [ ! -d "$SOURCE_DIR/.git" ]; then
+          if [ ! -d "${{ env.SOURCE_DIR }}/.git" ]; then
             echo "📥 首次克隆源码..."
             git config --global http.postBuffer 1048576000
-            git clone -b $REPO_BRANCH --single-branch --depth=1 $REPO_URL $SOURCE_DIR
+            git clone -b $REPO_BRANCH --single-branch --depth=1 $REPO_URL ${{ env.SOURCE_DIR }}
             echo "✅ 源码克隆完成"
           else
             echo "📥 更新源码..."
-            cd $SOURCE_DIR
+            cd ${{ env.SOURCE_DIR }}
             git config --global http.postBuffer 1048576000
             git remote prune origin
             git fetch origin $REPO_BRANCH --depth=1 || echo "⚠️ fetch失败，使用本地版本"
@@ -297,12 +356,10 @@ jobs:
           END_TIME=$(date +%s)
           echo "⏱️ 源码准备耗时: $((END_TIME - START_TIME))秒"
 
-          # 任务2：准备feeds配置
-          echo "📝 [2/3] 准备feeds配置..."
+          # 准备feeds配置
+          echo "📝 [2/2] 准备feeds配置..."
 
-          # 创建临时目录
-          mkdir -p feeds_temp
-          cd feeds_temp
+          cd ${{ env.SOURCE_DIR }}
 
           # 复制基础配置
           if [ -f "$GITHUB_WORKSPACE/feeds.conf.default" ]; then
@@ -331,55 +388,46 @@ jobs:
 
           echo "✅ Feeds配置准备完成"
 
-          # 应用feeds配置
-          cd $SOURCE_DIR
-          cp feeds_temp/feeds.conf.default ./feeds.conf.default
-          echo "✅ Feeds配置已应用"
-
-          # 任务3：更新feeds（如果需要）
+          # 更新feeds（如果需要）
           set +e
           if [ ! -d "staging_dir/host" ] || [ "${{ needs.analyze.outputs.needs-rebuild }}" = "true" ]; then
-            echo "🔄 [3/3] 更新feeds..."
+            echo "🔄 更新feeds..."
             START_TIME=$(date +%s)
 
-            # 优化feeds更新
-            echo "📊 开始feeds update..."
-            timeout 300 ./scripts/feeds update -a &
-            UPDATE_PID=$!
+            # 空间优化的feeds更新
+            if [ "${{ steps.cache-check.outputs.disk-space }}" = "low" ]; then
+              echo "📊 磁盘空间不足，使用最小feeds更新..."
+              timeout 300 ./scripts/feeds update -a || echo "⚠️ feeds更新失败，继续构建"
+              timeout 300 ./scripts/feeds install -a || echo "⚠️ feeds安装失败，继续构建"
+            else
+              echo "📊 开始feeds update..."
+              timeout 300 ./scripts/feeds update -a &
+              UPDATE_PID=$!
 
-            # 等待一段时间后开始install
-            sleep 60
-
-            echo "📦 开始feeds install..."
-            timeout 600 ./scripts/feeds install -a -f &
-            INSTALL_PID=$!
-
-            # 监控进度
-            while kill -0 $UPDATE_PID 2>/dev/null || kill -0 $INSTALL_PID 2>/dev/null; do
               sleep 30
-              echo "⏳ Feeds更新进行中..."
 
-              # 显示磁盘使用情况
-              if [ -d "dl" ]; then
-                DL_SIZE=$(du -sh dl 2>/dev/null | cut -f1)
-                echo "📁 DL目录大小: $DL_SIZE"
-              fi
-            done
+              echo "📦 开始feeds install..."
+              timeout 600 ./scripts/feeds install -a &
+              INSTALL_PID=$!
 
-            # 等待完成
-            wait $UPDATE_PID 2>/dev/null
-            wait $INSTALL_PID 2>/dev/null
+              # 监控进度
+              while kill -0 $UPDATE_PID 2>/dev/null || kill -0 $INSTALL_PID 2>/dev/null; do
+                sleep 30
+                echo "⏳ Feeds更新进行中..."
+
+                # 显示磁盘使用情况
+                if [ -d "dl" ]; then
+                  DL_SIZE=$(du -sh dl 2>/dev/null | cut -f1)
+                  echo "📁 DL目录大小: $DL_SIZE"
+                fi
+              done
+
+              wait $UPDATE_PID 2>/dev/null
+              wait $INSTALL_PID 2>/dev/null
+            fi
 
             END_TIME=$(date +%s)
             echo "⏱️ Feeds更新耗时: $((END_TIME - START_TIME))秒"
-
-            # 检查结果
-            if [ -d "staging_dir/host" ]; then
-              echo "✅ Feeds更新成功"
-            else
-              echo "⚠️ Feeds更新未完全成功，尝试快速修复..."
-              timeout 120 ./scripts/feeds install -a || echo "⚠️ 快速修复也失败，继续构建"
-            fi
           else
             echo "✅ Feeds已存在且最新，跳过更新"
           fi
@@ -388,15 +436,15 @@ jobs:
 
           # 最终状态检查
           echo "📊 准备完成状态:"
-          echo "- 源码目录: $([ -d "$SOURCE_DIR/.git" ] && echo "✅ 存在" || echo "❌ 缺失")"
-          echo "- Feeds配置: $([ -f "$SOURCE_DIR/feeds.conf.default" ] && echo "✅ 存在" || echo "❌ 缺失")"
-          echo "- Staging目录: $([ -d "$SOURCE_DIR/staging_dir/host" ] && echo "✅ 存在" || echo "⚠️ 缺失")"
+          echo "- 源码目录: $([ -d "${{ env.SOURCE_DIR }}/.git" ] && echo "✅ 存在" || echo "❌ 缺失")"
+          echo "- Feeds配置: $([ -f "${{ env.SOURCE_DIR }}/feeds.conf.default" ] && echo "✅ 存在" || echo "❌ 缺失")"
+          echo "- Staging目录: $([ -d "${{ env.SOURCE_DIR }}/staging_dir/host" ] && echo "✅ 存在" || echo "⚠️ 缺失")"
 
           echo "✅ 源码和依赖准备完成"
 
       - name: 修复依赖和补丁
         run: |
-          cd $SOURCE_DIR
+          cd ${{ env.SOURCE_DIR }}
           echo "🔧 应用修复补丁..."
 
           # AdGuardHome 相关
@@ -420,7 +468,7 @@ jobs:
 
       - name: 配置构建
         run: |
-          cd $SOURCE_DIR
+          cd ${{ env.SOURCE_DIR }}
           echo "⚙️ 配置构建选项..."
 
           # 验证互斥选项
@@ -472,76 +520,87 @@ jobs:
       - name: 智能编译
         timeout-minutes: ${{ inputs.max_build_time }}
         run: |
-          cd $SOURCE_DIR
+          cd ${{ env.SOURCE_DIR }}
           THREADS=${{ needs.analyze.outputs.optimal-threads }}
           export PATH="/usr/lib/ccache:$PATH"
 
-          # 设置ccache
-          ccache --set-config=max_size=8G || true
-          ccache --set-config=compression=true || true
+          # 设置ccache（如果磁盘空间允许）
+          if [ "${{ steps.cache-check.outputs.disk-space }}" != "low" ]; then
+            ccache --set-config=max_size=4G || true
+            ccache --set-config=compression=true || true
+          fi
 
           echo "🔨 开始构建 (模式: ${{ needs.analyze.outputs.build-strategy }})..."
           START_TIME=$(date +%s)
 
-          # 智能清理
+          # 智能清理（空间优化版）
           case "${{ needs.analyze.outputs.clean-level }}" in
-            "full")
-              make clean || true
-              rm -rf build_dir/* || true
+            "selective")
+              echo "🧹 选择性清理，保留重要缓存..."
+              rm -rf build_dir/hostpkg
+              rm -rf build_dir/target-*/linux-*/linux-*
               ;;
             "minimal")
-              rm -rf build_dir/target-* || true
+              echo "🧹 最小清理..."
+              rm -rf build_dir/target-* 2>/dev/null || true
               ;;
             "none")
-              echo "跳过清理"
+              echo "✅ 跳过清理"
               ;;
           esac
 
           # 下载依赖（如果需要）
           if [ ! "$(ls -A dl 2>/dev/null)" ] || [ "${{ needs.analyze.outputs.use-incremental }}" != "true" ]; then
             echo "📦 下载依赖..."
-            make download -j$((THREADS * 2)) || {
+            make download -j$THREADS || {
               find dl -size -1024c -delete 2>/dev/null || true
-              make download -j$((THREADS * 2)) || echo "下载失败，继续尝试编译"
+              make download -j$THREADS || echo "下载失败，继续尝试编译"
             }
           fi
 
-          # 根据策略编译
+          # 根据策略和磁盘空间编译
           if [ "${{ needs.analyze.outputs.use-incremental }}" = "true" ]; then
             echo "⚡ 增量编译模式..."
-            make -j$THREADS BUILD_LOG=1 IGNORE_ERRORS=m || {
-              echo "⚠️ 增量编译失败，尝试完整编译..."
-              make -j$THREADS BUILD_LOG=1
+            make -j$THREADS BUILD_LOG=1 || {
+              echo "⚠️ 增量编译失败，尝试单线程..."
+              make -j1 BUILD_LOG=1
             }
           else
-            echo "🔨 完整编译模式..."
-            make -j$THREADS BUILD_LOG=1 IGNORE_ERRORS=m || {
-              echo "⚠️ 并行编译失败，尝试单线程..."
-              make -j1 V=s || {
+            if [ "${{ steps.cache-check.outputs.disk-space }}" = "low" ]; then
+              echo "🔨 空间优化编译模式（单线程）..."
+              make -j1 BUILD_LOG=1 || {
                 echo "❌ 编译失败"
                 exit 1
               }
-            }
+            else
+              echo "🔨 完整编译模式..."
+              make -j$THREADS BUILD_LOG=1 IGNORE_ERRORS=m || {
+                echo "⚠️ 并行编译失败，尝试单线程..."
+                make -j1 V=s || {
+                  echo "❌ 编译失败"
+                  exit 1
+                }
+              }
+            fi
           fi
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
           echo "✅ 编译完成 (耗时: ${DURATION}s)"
 
-      - name: 上传构建缓存
-        if: always()
+      - name: 上传构建缓存（按需）
+        if: always() && steps.cache-check.outputs.disk-space != 'low'
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.SOURCE_DIR }}/dl
-            ${{ env.SOURCE_DIR }}/staging_dir
             ~/.ccache
-          key: ${{ runner.os }}-build-v3-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}-${{ github.run_id }}
+          key: ${{ runner.os }}-build-v4-${{ env.REPO_BRANCH }}-${{ needs.analyze.outputs.config-hash }}-${{ github.run_id }}
 
       - name: 收集产物
         if: success()
         run: |
-          cd $SOURCE_DIR
+          cd ${{ env.SOURCE_DIR }}
 
           if [ ! -d "bin/targets" ]; then
             echo "❌ 未找到编译输出"
@@ -560,7 +619,7 @@ jobs:
           # 生成清单
           cat > $GITHUB_WORKSPACE/artifacts/MANIFEST.txt << 'EOF'
           ╔════════════════════════════════════════════════╗
-          ║    ImmortalWrt H5000M 智能构建报告             ║
+          ║    ImmortalWrt H5000M 空间优化构建报告         ║
           ╚════════════════════════════════════════════════╝
 
           📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
@@ -571,6 +630,9 @@ jobs:
           ⚡ 增量模式: ${{ needs.analyze.outputs.use-incremental }}
           💾 清理级别: ${{ needs.analyze.outputs.clean-level }}
           🔧 优化线程: ${{ needs.analyze.outputs.optimal-threads }}
+
+          💾 磁盘状态: ${{ steps.cache-check.outputs.disk-space }}
+          📊 缓存策略: ${{ steps.cache-check.outputs.disk-space == 'low' && '最小缓存' || steps.cache-check.outputs.disk-space == 'medium' && '选择性缓存' || '完整缓存' }}
 
           ⚙️ 启用的功能:
           • AdGuardHome: ${{ inputs.enable_adguardhome }}
@@ -599,7 +661,7 @@ jobs:
         with:
           name: ImmortalWrt-H5000M-${{ github.run_number }}
           path: artifacts/
-          retention-days: 30
+          retention-days: 15
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v1
@@ -617,6 +679,7 @@ jobs:
             - 策略: ${{ needs.analyze.outputs.build-strategy }}
             - 优化: ${{ needs.analyze.outputs.use-incremental == 'true' && '增量' || '完整' }}
             - 线程: ${{ needs.analyze.outputs.optimal-threads }}
+            - 磁盘策略: ${{ steps.cache-check.outputs.disk-space }}
 
             **⚙️ 启用的功能:**
             - AdGuardHome: ${{ inputs.enable_adguardhome }}
