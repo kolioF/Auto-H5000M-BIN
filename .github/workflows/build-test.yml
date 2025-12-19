@@ -335,6 +335,11 @@ jobs:
         with:
           name: source-${{ github.run_number }}
 
+      - name: 清理旧目录
+        run: |
+          echo "🧹 清理可能存在的旧源码目录..."
+          rm -rf immortalwrt 2>/dev/null || true
+
       - name: 解压源码
         run: |
           echo "📦 解压源码..."
