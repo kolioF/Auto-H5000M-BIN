@@ -240,6 +240,12 @@ jobs:
           enable_pkg() { echo "CONFIG_PACKAGE_$1=y" >> .config; }
           disable_pkg() { echo "# CONFIG_PACKAGE_$1 is not set" >> .config; }
 
+          # 禁用旧的modem包以避免与qmodem冲突
+          disable_pkg "luci-app-modem"
+          disable_pkg "modem"
+          disable_pkg "luci-app-sms-tool-lite"
+          disable_pkg "luci-app-3ginfo-lite"
+
           # AdGuardHome
           if [ "${{ steps.set-env.outputs.enable_adguardhome }}" = "true" ]; then
             enable_pkg "luci-app-adguardhome"
