@@ -147,7 +147,7 @@ jobs:
             ${{ env.SOURCE_DIR }}/build_dir
             ${{ env.SOURCE_DIR }}/tmp
             ~/.ccache
-          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ hash( inputs.enable_adguardhome + inputs.enable_openclash + inputs.enable_mihomo + inputs.enable_upnp + inputs.enable_vlmcsd + inputs.enable_mosdns + inputs.enable_dockerman + inputs.enable_qmodem_next + inputs.enable_qmodem + inputs.enable_mwan + inputs.enable_homeproxy ) }}
+          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ hash( join( [inputs.enable_adguardhome, inputs.enable_openclash, inputs.enable_mihomo, inputs.enable_upnp, inputs.enable_vlmcsd, inputs.enable_mosdns, inputs.enable_dockerman, inputs.enable_qmodem_next, inputs.enable_qmodem, inputs.enable_mwan, inputs.enable_homeproxy], '' ) ) }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-
 
