@@ -308,13 +308,20 @@ jobs:
           fi
 
           # Mihomo
-          [ "${{ steps.set-env.outputs.enable_mihomo }}" = "true" ] && {
+          if [ "${{ steps.set-env.outputs.enable_mihomo }}" = "true" ]; then
             enable_pkg "nikki"
             enable_pkg "luci-app-nikki"
-          }
+          else
+            disable_pkg "nikki"
+            disable_pkg "luci-app-nikki"
+          fi
 
           # 其他包
-          [ "${{ steps.set-env.outputs.enable_upnp }}" = "true" ] && enable_pkg "luci-app-upnp" || disable_pkg "luci-app-upnp"
+          if [ "${{ steps.set-env.outputs.enable_upnp }}" = "true" ]; then
+            enable_pkg "luci-app-upnp"
+          else
+            disable_pkg "luci-app-upnp"
+          fi
 
           if [ "${{ steps.set-env.outputs.enable_vlmcsd }}" = "true" ]; then
             enable_pkg "vlmcsd"
@@ -324,30 +331,47 @@ jobs:
             disable_pkg "luci-app-vlmcsd"
           fi
 
-          [ "${{ steps.set-env.outputs.enable_mosdns }}" = "true" ] && {
+          if [ "${{ steps.set-env.outputs.enable_mosdns }}" = "true" ]; then
             enable_pkg "mosdns"
             enable_pkg "luci-app-mosdns"
-          } || {
+          else
             disable_pkg "mosdns"
             disable_pkg "luci-app-mosdns"
-          }
-          [ "${{ steps.set-env.outputs.enable_dockerman }}" = "true" ] && {
+          fi
+
+          if [ "${{ steps.set-env.outputs.enable_dockerman }}" = "true" ]; then
             enable_pkg "docker"
             enable_pkg "luci-app-dockerman"
-          }
+          else
+            disable_pkg "docker"
+            disable_pkg "luci-app-dockerman"
+          fi
 
           # QModem
           if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ]; then
             enable_pkg "luci-app-qmodem-next"
           elif [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
             enable_pkg "luci-app-qmodem"
+          else
+            disable_pkg "luci-app-qmodem-next"
+            disable_pkg "luci-app-qmodem"
           fi
 
           # MWAN
-          [ "${{ steps.set-env.outputs.enable_mwan }}" = "true" ] && {
+          if [ "${{ steps.set-env.outputs.enable_mwan }}" = "true" ]; then
             enable_pkg "mwan3"
             enable_pkg "luci-app-mwan3"
-          }
+          else
+            disable_pkg "mwan3"
+            disable_pkg "luci-app-mwan3"
+          fi
+
+          # HomeProxy
+          if [ "${{ steps.set-env.outputs.enable_homeproxy }}" = "true" ]; then
+            enable_pkg "luci-app-homeproxy"
+          else
+            disable_pkg "luci-app-homeproxy"
+          fi
 
           make defconfig
           echo "✅ 配置完成"
@@ -502,6 +526,7 @@ jobs:
           • QModem Next:   ${{ needs.prepare.outputs.enable_qmodem_next }}
           • QModem:        ${{ needs.prepare.outputs.enable_qmodem }}
           • MWAN:          ${{ needs.prepare.outputs.enable_mwan }}
+          • HomeProxy:     ${{ needs.prepare.outputs.enable_homeproxy }}
 
           📦 产物文件:
           EOF
@@ -539,6 +564,7 @@ jobs:
             - MosDNS: ${{ needs.prepare.outputs.enable_mosdns }}
             - Docker: ${{ needs.prepare.outputs.enable_dockerman }}
             - MWAN: ${{ needs.prepare.outputs.enable_mwan }}
+            - HomeProxy: ${{ needs.prepare.outputs.enable_homeproxy }}
 
             💾 下载产物: 见下方 Artifacts
             📋 详细信息: 见 MANIFEST.txt
