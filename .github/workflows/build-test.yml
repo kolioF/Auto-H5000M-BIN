@@ -194,6 +194,11 @@ jobs:
             cp "$GITHUB_WORKSPACE/feeds.conf.default" ./feeds.conf.default
           fi
 
+          # 保证 feeds.conf.default 和 feeds 目录同步，彻底避免残留
+          # 先清理所有 nikki/qmodem/homeproxy/coolsnowwolf_luci 相关目录和索引
+          rm -rf feeds/nikki* feeds/qmodem* feeds/homeproxy* feeds/coolsnowwolf_luci* 2>/dev/null || true
+          rm -f feeds/nikki.index feeds/qmodem.index feeds/homeproxy.index feeds/coolsnowwolf_luci.index 2>/dev/null || true
+
           # 根据输入动态管理 feeds，确保 feeds.conf.default 和 feeds 目录始终同步
           # Nikki feed
           if [ "${{ steps.set-env.outputs.enable_mihomo }}" = "true" ]; then
@@ -202,8 +207,6 @@ jobs:
             fi
           else
             sed -i '/nikki/d' feeds.conf.default
-            rm -rf feeds/nikki 2>/dev/null || true
-            find feeds/ -maxdepth 1 -type d -name 'nikki*' -exec rm -rf {} + 2>/dev/null || true
           fi
 
           # QModem feed
@@ -213,10 +216,8 @@ jobs:
             fi
           else
             sed -i '/qmodem/d' feeds.conf.default
-            rm -rf feeds/qmodem 2>/dev/null || true
-            find feeds/ -maxdepth 1 -type d -name 'qmodem*' -exec rm -rf {} + 2>/dev/null || true
           fi
-          
+
           # HomeProxy feed
           if [ "${{ steps.set-env.outputs.enable_homeproxy }}" = "true" ]; then
             if ! grep -q "homeproxy" feeds.conf.default; then
@@ -224,10 +225,8 @@ jobs:
             fi
           else
             sed -i '/homeproxy/d' feeds.conf.default
-            rm -rf feeds/homeproxy 2>/dev/null || true
-            find feeds/ -maxdepth 1 -type d -name 'homeproxy*' -exec rm -rf {} + 2>/dev/null || true
           fi
-          
+
           # Adbyby Plus feed
           if [ "${{ steps.set-env.outputs.enable_adbyby_plus }}" = "true" ]; then
             if ! grep -q "coolsnowwolf_luci" feeds.conf.default; then
@@ -235,8 +234,6 @@ jobs:
             fi
           else
             sed -i '/coolsnowwolf_luci/d' feeds.conf.default
-            rm -rf feeds/coolsnowwolf_luci 2>/dev/null || true
-            find feeds/ -maxdepth 1 -type d -name 'coolsnowwolf_luci*' -exec rm -rf {} + 2>/dev/null || true
           fi
 
           # 更新 feeds
