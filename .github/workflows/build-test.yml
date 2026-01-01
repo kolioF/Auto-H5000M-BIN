@@ -382,9 +382,21 @@ jobs:
           if [ -d "package/feeds/qmodem" ]; then
             rm -rf package/feeds/qmodem/ndisc6 2>/dev/null || true
 
+            # 修复 qmodem Makefile 中的 kmod-mhi-wwan 依赖问题
             QMODEM_MK="package/feeds/qmodem/qmodem/Makefile"
             if [ -f "$QMODEM_MK" ]; then
-              sed -i 's/DEPENDS:=.*+kmod-mhi-wwan/# &/g' "$QMODEM_MK" || true
+              echo "🔧 修复 qmodem Makefile 依赖..."
+              # 完全移除 kmod-mhi-wwan 依赖
+              sed -i 's/+kmod-mhi-wwan//g' "$QMODEM_MK"
+              sed -i 's/kmod-mhi-wwan//g' "$QMODEM_MK"
+              echo "✅ qmodem 依赖修复完成"
+            fi
+            
+            # 同时修复 feeds/qmodem 中的原始文件
+            QMODEM_FEEDS_MK="feeds/qmodem/application/qmodem/Makefile"
+            if [ -f "$QMODEM_FEEDS_MK" ]; then
+              sed -i 's/+kmod-mhi-wwan//g' "$QMODEM_FEEDS_MK"
+              sed -i 's/kmod-mhi-wwan//g' "$QMODEM_FEEDS_MK"
             fi
           fi
 
@@ -527,11 +539,29 @@ jobs:
           cd $SOURCE_DIR
           echo "📥 预下载构建依赖..."
           THREADS=$(nproc)
-          if [ -z "$(ls -A dl 2>/dev/null)" ]; then
-            make download -j$THREADS || echo "⚠️ 下载失败，将在构建时重试"
-          else
-            echo "✅ 依赖已缓存，跳过预下载"
-          fi
+          
+          # 清理可能损坏的下载文件
+          find dl -size -1024c -delete 2>/dev/null || true
+          
+          # 多次尝试下载，处理网络不稳定问题
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "📥 下载尝试 $i/$MAX_RETRIES..."
+            if make download -j$THREADS V=s 2>&1 | tee download.log; then
+              echo "✅ 下载成功"
+              break
+            else
+              echo "⚠️ 下载失败，清理并重试..."
+              # 删除可能损坏的小文件
+              find dl -size -1024c -delete 2>/dev/null || true
+              # 检查具体失败的包
+              grep -i "failed\|error" download.log | head -20 || true
+              if [ $i -eq $MAX_RETRIES ]; then
+                echo "❌ 多次下载尝试失败，继续构建时重试"
+              fi
+              sleep 5
+            fi
+          done
 
       - name: 预构建工具链
         run: |
@@ -622,14 +652,21 @@ jobs:
           
           START_TIME=$(date +%s)
           
-          # 优化：预检查依赖，避免重复下载
-          if [ -z "$(ls -A dl 2>/dev/null)" ] || ! make download -j$THREADS; then
-            echo "⚠️ 下载依赖..."
-            find dl -size -1024c -delete 2>/dev/null || true
-            make download -j$THREADS
-          else
-            echo "✅ 依赖已存在，跳过下载"
-          fi
+          # 优化：下载依赖，带重试逻辑
+          echo "📥 检查并下载依赖..."
+          find dl -size -1024c -delete 2>/dev/null || true
+          
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if make download -j$THREADS; then
+              echo "✅ 依赖下载完成"
+              break
+            else
+              echo "⚠️ 下载失败 ($i/$MAX_RETRIES)，清理并重试..."
+              find dl -size -1024c -delete 2>/dev/null || true
+              sleep 5
+            fi
+          done
           
           # 编译（使用 V=s 仅在失败时显示详细日志，提高效率）
           if make -j$THREADS IGNORE_ERRORS=n; then
