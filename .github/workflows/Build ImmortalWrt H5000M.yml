@@ -107,17 +107,17 @@ jobs:
         id: set-env
         run: |
           # 从 workflow_dispatch inputs 读取配置
-          echo "enable_adguardhome=${{ github.event.inputs.enable_adguardhome || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_openclash=${{ github.event.inputs.enable_openclash || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_adguardhome=${{ github.event.inputs.enable_adguardhome || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_openclash=${{ github.event.inputs.enable_openclash || 'true' }}" >> $GITHUB_OUTPUT
           echo "enable_nikki=${{ github.event.inputs.enable_nikki || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_upnp=${{ github.event.inputs.enable_upnp || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_vlmcsd=${{ github.event.inputs.enable_vlmcsd || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_upnp=${{ github.event.inputs.enable_upnp || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_vlmcsd=${{ github.event.inputs.enable_vlmcsd || 'true' }}" >> $GITHUB_OUTPUT
           echo "enable_mosdns=${{ github.event.inputs.enable_mosdns || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_dockerman=${{ github.event.inputs.enable_dockerman || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_qmodem_next=${{ github.event.inputs.enable_qmodem_next || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_qmodem=${{ github.event.inputs.enable_qmodem || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_mwan=${{ github.event.inputs.enable_mwan || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_homeproxy=${{ github.event.inputs.enable_homeproxy || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_qmodem=${{ github.event.inputs.enable_qmodem || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_mwan=${{ github.event.inputs.enable_mwan || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_homeproxy=${{ github.event.inputs.enable_homeproxy || 'true' }}" >> $GITHUB_OUTPUT
           echo "enable_adbyby_plus=${{ github.event.inputs.enable_adbyby_plus || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_original_modem=${{ github.event.inputs.enable_original_modem || 'false' }}" >> $GITHUB_OUTPUT
 
